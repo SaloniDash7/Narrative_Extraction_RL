@@ -1,0 +1,8 @@
+gym
+numpy
+pandas
+stable_baselines3
+transformers
+tqdm
+nltk
+sklearn
