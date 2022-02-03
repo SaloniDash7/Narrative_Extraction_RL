@@ -7,11 +7,12 @@ from stable_baselines3.common import logger
 from transformers import AutoModel, AutoTokenizer
 from nltk.translate.bleu_score import sentence_bleu
 from src.utils.embeddings import compute_embeddings
+from src.utils.metrics import intercluster_distance, intracluster_distance
 import ipdb as pdb
 
 
 class NarrativeEnv(gym.Env):
-    def __init__(self, sentences, narrative2sents={}, **config_dict):
+    def __init__(self, sentences, narrative2sents={}, alpha = 0.5, **config_dict):
         super().__init__()
         self.seed_sentences = sentences
         self.narrative2sents = narrative2sents
@@ -38,6 +39,16 @@ class NarrativeEnv(gym.Env):
             self.config.get("embed_model_name_or_path", "roberta-base")
         )
 
+        # Compute and store all narrative embeddings        
+        self.narrative2emb = {}
+        for narrative in self.narrative2sents.keys():
+        	self.narrative2emb[narrative] = self.compute_embeddings(self.narrative2sents[narrative],
+            self.embed_model,
+            self.embed_tokenizer,
+            pooling=self.embedding_pooling,
+            convert_to_numpy=True,
+            progress_bar=False)
+
         # Other parameters that would be useful
         self.max_queries = self.config.get("max_queries", 100)
         self.resample_queries = self.config.get("resample_queries", False)
@@ -51,10 +62,9 @@ class NarrativeEnv(gym.Env):
             action (int): Index for the query sentence to be selected as part of the narrative
         """
         # Compute the reward
-        try:
-            reward = self.reward_function(self.state, action)
-        except:
-            pdb.set_trace()
+       
+        reward = self.reward_function(self.state, action)
+        
         # Update the current state
         (
             narrative_embeddings,
@@ -105,14 +115,26 @@ class NarrativeEnv(gym.Env):
 
         return self.state, reward, done, {}
 
+
     def reward_function(self, state, action):
 
         # TODO: Modify this to something smarter, currently just measuring the bleu b/w selected and narrative sentences
-        _, _, narrative_sentences, query_sentences = state
-        selected_sentence = query_sentences[action]
-        return sentence_bleu(
-            references=narrative_sentences, hypothesis=selected_sentence
-        )
+        narrative_embeddings, query_embeddings, _, _ = state
+        selected_sentence_embedding = query_embeddings[action]
+        intracluster_distance_ = intracluster_distance(selected_sentence_embedding, narrative_embeddings)
+
+        if self.narrative2sents == {}:
+        	return -intracluster_distance_
+ 
+        intercluster_distance_ = 0
+
+        for narrative in self.narrative2emb.keys():
+        	if self.curr_narrative != narrative:
+        		intercluster_distance_ += intercluster_distance(selected_sentence_embedding, self.narrative2emb[narrative])
+
+        intercluster_distance_ /= len(self.narrative2emb.keys())
+
+        return  intercluster_distance_ - intracluster_distance_
 
     def reset(self):
 
@@ -123,6 +145,8 @@ class NarrativeEnv(gym.Env):
         if self.narrative2sents != {}:
             random_narrative = random.choice(self.narrative2sents.keys())
             narrative_sentences = self.narrative2sents[random_narrative]
+
+            self.curr_narrative = random_narrative
 
         # If not then just sample a random seed sentence to used for narrative
         else:
