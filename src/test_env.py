@@ -34,7 +34,7 @@ def run_episodes(env, policy, n_episodes, **policy_kwargs):
 def main():
 
     MAX_SENTS = 1000
-    N_EPISODES = 10
+    N_EPISODES = 100
 
     # Load data
     with open("data/caanrc_tweets.json", "r") as f:

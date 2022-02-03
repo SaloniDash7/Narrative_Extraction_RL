@@ -3,6 +3,38 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.metrics.pairwise import cosine_similarity
 
+
+def compute_embeddings_muse(
+    texts, model, batch_size=4, convert_to_numpy=False, progress_bar=False
+):
+    """
+    Computes embeddings for  a sequence of texts given by the list `texts`
+    """
+    embeddings = []
+    with tqdm(total=len(texts) // batch_size, disable=not progress_bar) as pbar:
+        for batch_st in range(0, len(texts), batch_size):
+            batch_end = min(batch_st + batch_size, len(texts))
+            texts_batch = texts[batch_st:batch_end]
+            with torch.no_grad():
+                embeddings_batch = model.encode(
+                    texts_batch,
+                    convert_to_numpy=convert_to_numpy,
+                    convert_to_tensor=not convert_to_numpy,
+                    show_progress_bar=False,
+                )
+
+            embeddings.append(embeddings_batch)
+            pbar.update(1)
+
+    if convert_to_numpy:
+        embeddings = np.concatenate(embeddings, axis=0)
+
+    else:
+        embeddings = torch.cat(embeddings, dim=0)
+
+    return embeddings
+
+
 def compute_embeddings(
     texts,
     model,
@@ -56,7 +88,18 @@ def compute_embeddings(
 
     return embeddings
 
+
 def compute_embedding_similarities(key_embeddings, query_embeddings):
     similarities = cosine_similarity(query_embeddings, key_embeddings)
-    
+
     return similarities
+
+
+def index_embeddings(embeddings, idxs, ann_index):
+    for embedding, idx in zip(embeddings, idxs):
+        ann_index.add_item(idx, embedding)
+
+
+def get_embeddings_from_index(sentences, sent_to_idx, ann_index):
+    embeddings = [ann_index.get_item_vector(sent_to_idx[sent]) for sent in sentences]
+    return np.array(embeddings,)
